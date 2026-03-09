@@ -1104,13 +1104,28 @@ func (al *AgentLoop) runLLMIteration(
 					TotalTokens:      response.Usage.TotalTokens,
 				}
 			}
+			// Build generation output: text content or tool calls summary
+			var genOutput any
+			if response.Content != "" {
+				genOutput = response.Content
+			} else if len(response.ToolCalls) > 0 {
+				calls := make([]map[string]any, len(response.ToolCalls))
+				for i, tc := range response.ToolCalls {
+					calls[i] = map[string]any{
+						"id":   tc.ID,
+						"name": tc.Name,
+						"args": tc.Arguments,
+					}
+				}
+				genOutput = calls
+			}
 			al.tracer.CreateGeneration(tracing.GenerationParams{
 				ID:      generationID,
 				TraceID: opts.traceID,
 				Name:    fmt.Sprintf("llm/%s/iter-%d", activeModel, iteration),
 				Model:   activeModel,
 				Input:   formatMessagesForTrace(messages),
-				Output:  response.Content,
+				Output:  genOutput,
 				StartAt: llmStartAt,
 				EndAt:   time.Now(),
 				Usage:   traceUsage,
