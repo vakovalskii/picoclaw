@@ -1130,8 +1130,9 @@ func (al *AgentLoop) runLLMIteration(
 				EndAt:   time.Now(),
 				Usage:   traceUsage,
 				Metadata: map[string]any{
-					"iteration":  iteration,
-					"tool_calls": len(response.ToolCalls),
+					"iteration":       iteration,
+					"tool_calls":      len(response.ToolCalls),
+					"available_tools": toolNamesFromDefs(providerToolDefs),
 				},
 			})
 		}
@@ -1937,6 +1938,15 @@ func extractParentPeer(msg bus.InboundMessage) *routing.RoutePeer {
 	return &routing.RoutePeer{Kind: parentKind, ID: parentID}
 }
 
+// toolNamesFromDefs extracts tool names from provider definitions.
+func toolNamesFromDefs(defs []providers.ToolDefinition) []string {
+	names := make([]string, len(defs))
+	for i, d := range defs {
+		names[i] = d.Function.Name
+	}
+	return names
+}
+
 // formatMessagesForTrace returns a compact representation of messages for Langfuse input.
 func formatMessagesForTrace(messages []providers.Message) []map[string]any {
 	result := make([]map[string]any, 0, len(messages))
@@ -1946,7 +1956,15 @@ func formatMessagesForTrace(messages []providers.Message) []map[string]any {
 			"content": utils.Truncate(msg.Content, 2000),
 		}
 		if len(msg.ToolCalls) > 0 {
-			m["tool_calls"] = len(msg.ToolCalls)
+			calls := make([]map[string]any, len(msg.ToolCalls))
+			for i, tc := range msg.ToolCalls {
+				calls[i] = map[string]any{
+					"id":   tc.ID,
+					"name": tc.Name,
+					"args": tc.Arguments,
+				}
+			}
+			m["tool_calls"] = calls
 		}
 		if msg.ToolCallID != "" {
 			m["tool_call_id"] = msg.ToolCallID
