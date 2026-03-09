@@ -58,16 +58,17 @@ type TraceParams struct {
 
 // GenerationParams records a single LLM call within a trace.
 type GenerationParams struct {
-	ID       string
-	TraceID  string
-	Name     string
-	Model    string
-	Input    any
-	Output   any
-	StartAt  time.Time
-	EndAt    time.Time
-	Usage    *UsageInfo
-	Metadata map[string]any
+	ID                  string
+	TraceID             string
+	ParentObservationID string // links generation to parent span
+	Name                string
+	Model               string
+	Input               any
+	Output              any
+	StartAt             time.Time
+	EndAt               time.Time
+	Usage               *UsageInfo
+	Metadata            map[string]any
 }
 
 // SpanParams records a span (e.g. tool execution) within a trace.
@@ -106,16 +107,17 @@ type traceBody struct {
 }
 
 type generationBody struct {
-	ID           string         `json:"id"`
-	TraceID      string         `json:"traceId"`
-	Name         string         `json:"name,omitempty"`
-	Model        string         `json:"model,omitempty"`
-	Input        any            `json:"input,omitempty"`
-	Output       any            `json:"output,omitempty"`
-	StartTime    string         `json:"startTime,omitempty"`
-	EndTime      string         `json:"endTime,omitempty"`
-	UsageDetails *UsageInfo     `json:"usageDetails,omitempty"`
-	Metadata     map[string]any `json:"metadata,omitempty"`
+	ID                  string         `json:"id"`
+	TraceID             string         `json:"traceId"`
+	ParentObservationID string         `json:"parentObservationId,omitempty"`
+	Name                string         `json:"name,omitempty"`
+	Model               string         `json:"model,omitempty"`
+	Input               any            `json:"input,omitempty"`
+	Output              any            `json:"output,omitempty"`
+	StartTime           string         `json:"startTime,omitempty"`
+	EndTime             string         `json:"endTime,omitempty"`
+	UsageDetails        *UsageInfo     `json:"usageDetails,omitempty"`
+	Metadata            map[string]any `json:"metadata,omitempty"`
 }
 
 type spanBody struct {
@@ -208,9 +210,10 @@ func (t *Tracer) CreateGeneration(params GenerationParams) {
 		Type:      "generation-create",
 		Timestamp: now,
 		Body: generationBody{
-			ID:           params.ID,
-			TraceID:      params.TraceID,
-			Name:         params.Name,
+			ID:                  params.ID,
+			TraceID:             params.TraceID,
+			ParentObservationID: params.ParentObservationID,
+			Name:                params.Name,
 			Model:        params.Model,
 			Input:        params.Input,
 			Output:       params.Output,

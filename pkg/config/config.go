@@ -59,7 +59,7 @@ type Config struct {
 	Tools     ToolsConfig     `json:"tools"`
 	Heartbeat HeartbeatConfig `json:"heartbeat"`
 	Devices   DevicesConfig   `json:"devices"`
-	Voice     VoiceConfig     `json:"voice"`
+	Voice     VoiceConfig     `json:"voice,omitempty"`
 	Tracing   TracingConfig   `json:"tracing,omitempty"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty"`
@@ -475,8 +475,19 @@ type DevicesConfig struct {
 	MonitorUSB bool `json:"monitor_usb" env:"PICOCLAW_DEVICES_MONITOR_USB"`
 }
 
+// VoiceConfig holds speech-to-text settings.
 type VoiceConfig struct {
-	EchoTranscription bool `json:"echo_transcription" env:"PICOCLAW_VOICE_ECHO_TRANSCRIPTION"`
+	EchoTranscription bool                `json:"echo_transcription" env:"PICOCLAW_VOICE_ECHO_TRANSCRIPTION"`
+	Transcription     TranscriptionConfig `json:"transcription,omitempty"`
+}
+
+// TranscriptionConfig configures an OpenAI-compatible Whisper endpoint.
+type TranscriptionConfig struct {
+	Enabled  bool   `json:"enabled"`
+	APIBase  string `json:"api_base"`  // e.g. "http://host:8500/v1"
+	APIKey   string `json:"api_key"`
+	Model    string `json:"model"`     // e.g. "whisper-1"
+	Language string `json:"language"`  // e.g. "ru" (optional)
 }
 
 type TracingConfig struct {

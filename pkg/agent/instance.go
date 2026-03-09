@@ -86,6 +86,9 @@ func NewAgentInstance(
 		if err != nil {
 			log.Fatalf("Critical error: unable to initialize exec tool: %v", err)
 		}
+		if len(allowWritePaths) > 0 {
+			execTool.SetAllowExecPaths(allowWritePaths)
+		}
 		toolsRegistry.Register(execTool)
 	}
 

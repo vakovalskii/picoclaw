@@ -24,10 +24,20 @@ type FunctionCall struct {
 	ThoughtSignature string `json:"thought_signature,omitempty"`
 }
 
+// BuiltinToolCall represents a server-side tool call (e.g. OpenAI web_search_call)
+// that was executed by the API, not by our agent loop.
+type BuiltinToolCall struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"`   // "web_search_call", etc.
+	Status string `json:"status"` // "completed", etc.
+	Query  string `json:"query,omitempty"`
+}
+
 type LLMResponse struct {
 	Content          string            `json:"content"`
 	ReasoningContent string            `json:"reasoning_content,omitempty"`
 	ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
+	BuiltinToolCalls []BuiltinToolCall `json:"builtin_tool_calls,omitempty"`
 	FinishReason     string            `json:"finish_reason"`
 	Usage            *UsageInfo        `json:"usage,omitempty"`
 	Reasoning        string            `json:"reasoning"`

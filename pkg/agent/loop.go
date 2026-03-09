@@ -63,7 +63,8 @@ type processOptions struct {
 	EnableSummary   bool     // Whether to trigger summarization
 	SendResponse    bool     // Whether to send response via bus
 	NoHistory       bool     // If true, don't load session history (for heartbeat)
-	traceID         string   // Langfuse trace ID (set internally)
+	traceID         string // Langfuse trace ID (set internally)
+	agentLoopSpanID string // Langfuse root span for agent loop
 }
 
 const (
@@ -808,11 +809,25 @@ func (al *AgentLoop) runAgentLoop(
 	}
 	opts.traceID = traceID
 
+	// Create root span for the entire agent loop
+	agentLoopSpanID := traceID + "-loop"
+	loopStartAt := time.Now()
+	opts.agentLoopSpanID = agentLoopSpanID
+
 	// 3. Run LLM iteration loop
 	finalContent, iteration, err := al.runLLMIteration(ctx, agent, messages, opts)
 
-	// Update trace with final output
+	// Close agent loop span and update trace
 	if al.tracer != nil {
+		al.tracer.CreateSpan(tracing.SpanParams{
+			ID:      agentLoopSpanID,
+			TraceID: traceID,
+			Name:    fmt.Sprintf("agent-loop/%s (%d iters)", agent.ID, iteration),
+			Input:   opts.UserMessage,
+			Output:  finalContent,
+			StartAt: loopStartAt,
+			EndAt:   time.Now(),
+		})
 		al.tracer.UpdateTrace(tracing.UpdateTraceParams{
 			ID:     traceID,
 			Output: finalContent,
@@ -1104,7 +1119,7 @@ func (al *AgentLoop) runLLMIteration(
 					TotalTokens:      response.Usage.TotalTokens,
 				}
 			}
-			// Build generation output: text content or tool calls summary
+			// Build generation output: text content, tool calls, or builtin tool calls
 			var genOutput any
 			if response.Content != "" {
 				genOutput = response.Content
@@ -1119,22 +1134,50 @@ func (al *AgentLoop) runLLMIteration(
 				}
 				genOutput = calls
 			}
+			genMeta := map[string]any{
+				"iteration":            iteration,
+				"tool_calls":           len(response.ToolCalls),
+				"builtin_tool_calls":   len(response.BuiltinToolCalls),
+				"available_tools":      toolNamesFromDefs(providerToolDefs),
+			}
+			// Include builtin tool call details in metadata
+			if len(response.BuiltinToolCalls) > 0 {
+				btCalls := make([]map[string]any, len(response.BuiltinToolCalls))
+				for i, bt := range response.BuiltinToolCalls {
+					btCalls[i] = map[string]any{
+						"id": bt.ID, "type": bt.Type,
+						"status": bt.Status, "query": bt.Query,
+					}
+				}
+				genMeta["builtin_tool_details"] = btCalls
+			}
 			al.tracer.CreateGeneration(tracing.GenerationParams{
-				ID:      generationID,
-				TraceID: opts.traceID,
-				Name:    fmt.Sprintf("llm/%s/iter-%d", activeModel, iteration),
-				Model:   activeModel,
-				Input:   formatMessagesForTrace(messages),
-				Output:  genOutput,
-				StartAt: llmStartAt,
-				EndAt:   time.Now(),
-				Usage:   traceUsage,
-				Metadata: map[string]any{
-					"iteration":       iteration,
-					"tool_calls":      len(response.ToolCalls),
-					"available_tools": toolNamesFromDefs(providerToolDefs),
-				},
+				ID:                  generationID,
+				TraceID:             opts.traceID,
+				ParentObservationID: opts.agentLoopSpanID,
+				Name:                fmt.Sprintf("llm/%s/iter-%d", activeModel, iteration),
+				Model:    activeModel,
+				Input:    formatMessagesForTrace(messages),
+				Output:   genOutput,
+				StartAt:  llmStartAt,
+				EndAt:    time.Now(),
+				Usage:    traceUsage,
+				Metadata: genMeta,
 			})
+			// Create spans for builtin tool calls (e.g. OpenAI web_search)
+			llmEndAt := time.Now()
+			for _, bt := range response.BuiltinToolCalls {
+				al.tracer.CreateSpan(tracing.SpanParams{
+					ID:                  fmt.Sprintf("%s-builtin-%d-%s", opts.traceID, iteration, bt.ID),
+					TraceID:             opts.traceID,
+					ParentObservationID: generationID,
+					Name:                fmt.Sprintf("builtin/%s", bt.Type),
+					Input:               bt.Query,
+					Output:              map[string]any{"status": bt.Status},
+					StartAt:             llmStartAt,
+					EndAt:               llmEndAt,
+				})
+			}
 		}
 
 		go al.handleReasoning(
@@ -1146,13 +1189,14 @@ func (al *AgentLoop) runLLMIteration(
 
 		logger.DebugCF("agent", "LLM response",
 			map[string]any{
-				"agent_id":       agent.ID,
-				"iteration":      iteration,
-				"content_chars":  len(response.Content),
-				"tool_calls":     len(response.ToolCalls),
-				"reasoning":      response.Reasoning,
-				"target_channel": al.targetReasoningChannelID(opts.Channel),
-				"channel":        opts.Channel,
+				"agent_id":            agent.ID,
+				"iteration":           iteration,
+				"content_chars":       len(response.Content),
+				"tool_calls":          len(response.ToolCalls),
+				"builtin_tool_calls":  len(response.BuiltinToolCalls),
+				"reasoning":           response.Reasoning,
+				"target_channel":      al.targetReasoningChannelID(opts.Channel),
+				"channel":             opts.Channel,
 			})
 		// Check if no tool calls - then check reasoning content if any
 		if len(response.ToolCalls) == 0 {

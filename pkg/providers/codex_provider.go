@@ -369,6 +369,18 @@ func translateToolsForCodex(tools []ToolDefinition, enableWebSearch bool) []resp
 func parseCodexResponse(resp *responses.Response) *LLMResponse {
 	var content strings.Builder
 	var toolCalls []ToolCall
+	var builtinCalls []BuiltinToolCall
+
+	// Log all output item types for debugging
+	itemTypes := make([]string, 0, len(resp.Output))
+	for _, item := range resp.Output {
+		itemTypes = append(itemTypes, item.Type)
+	}
+	logger.InfoCF("provider.codex", "Response output items", map[string]any{
+		"item_count": len(resp.Output),
+		"item_types": itemTypes,
+		"status":     resp.Status,
+	})
 
 	for _, item := range resp.Output {
 		switch item.Type {
@@ -387,6 +399,23 @@ func parseCodexResponse(resp *responses.Response) *LLMResponse {
 				ID:        item.CallID,
 				Name:      item.Name,
 				Arguments: args,
+			})
+		case "web_search_call":
+			query := item.Action.Query
+			builtinCalls = append(builtinCalls, BuiltinToolCall{
+				ID:     item.ID,
+				Type:   "web_search_call",
+				Status: item.Status,
+				Query:  query,
+			})
+			logger.InfoCF("provider.codex", "Model used built-in web search", map[string]any{
+				"call_id": item.ID,
+				"status":  item.Status,
+				"query":   query,
+			})
+		default:
+			logger.DebugCF("provider.codex", "Unhandled response item type", map[string]any{
+				"type": item.Type,
 			})
 		}
 	}
@@ -409,10 +438,11 @@ func parseCodexResponse(resp *responses.Response) *LLMResponse {
 	}
 
 	return &LLMResponse{
-		Content:      content.String(),
-		ToolCalls:    toolCalls,
-		FinishReason: finishReason,
-		Usage:        usage,
+		Content:          content.String(),
+		ToolCalls:        toolCalls,
+		BuiltinToolCalls: builtinCalls,
+		FinishReason:     finishReason,
+		Usage:            usage,
 	}
 }
 
