@@ -25,7 +25,7 @@ func createClaudeAuthProvider() (LLMProvider, error) {
 }
 
 // createCodexAuthProvider creates a Codex provider using OAuth credentials from auth store.
-func createCodexAuthProvider() (LLMProvider, error) {
+func createCodexAuthProvider(proxy string) (LLMProvider, error) {
 	cred, err := getCredential("openai")
 	if err != nil {
 		return nil, fmt.Errorf("loading auth credentials: %w", err)
@@ -33,7 +33,9 @@ func createCodexAuthProvider() (LLMProvider, error) {
 	if cred == nil {
 		return nil, fmt.Errorf("no credentials for openai. Run: picoclaw auth login --provider openai")
 	}
-	return NewCodexProviderWithTokenSource(cred.AccessToken, cred.AccountID, createCodexTokenSource()), nil
+	p := NewCodexProviderWithProxy(cred.AccessToken, cred.AccountID, proxy)
+	p.tokenSource = createCodexTokenSource()
+	return p, nil
 }
 
 // ExtractProtocol extracts the protocol prefix and model identifier from a model string.
@@ -70,7 +72,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 	case "openai":
 		// OpenAI with OAuth/token auth (Codex-style)
 		if cfg.AuthMethod == "oauth" || cfg.AuthMethod == "token" {
-			provider, err := createCodexAuthProvider()
+			provider, err := createCodexAuthProvider(cfg.Proxy)
 			if err != nil {
 				return nil, "", err
 			}

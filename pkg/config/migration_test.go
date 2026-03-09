@@ -230,8 +230,13 @@ func TestConvertProvidersToModelList_AuthMethod(t *testing.T) {
 
 	result := ConvertProvidersToModelList(cfg)
 
-	if len(result) != 0 {
-		t.Errorf("len(result) = %d, want 0 (AuthMethod alone should not create entry)", len(result))
+	// AuthMethod alone (e.g. OAuth) should create an entry — this is how
+	// Codex CLI subscriptions work: no api_key, only auth_method + proxy.
+	if len(result) != 1 {
+		t.Errorf("len(result) = %d, want 1 (AuthMethod should create entry for OAuth providers)", len(result))
+	}
+	if len(result) > 0 && result[0].AuthMethod != "oauth" {
+		t.Errorf("result[0].AuthMethod = %q, want %q", result[0].AuthMethod, "oauth")
 	}
 }
 

@@ -60,6 +60,7 @@ type Config struct {
 	Heartbeat HeartbeatConfig `json:"heartbeat"`
 	Devices   DevicesConfig   `json:"devices"`
 	Voice     VoiceConfig     `json:"voice"`
+	Tracing   TracingConfig   `json:"tracing,omitempty"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty"`
 }
@@ -478,6 +479,17 @@ type VoiceConfig struct {
 	EchoTranscription bool `json:"echo_transcription" env:"PICOCLAW_VOICE_ECHO_TRANSCRIPTION"`
 }
 
+type TracingConfig struct {
+	Langfuse LangfuseConfig `json:"langfuse,omitempty"`
+}
+
+type LangfuseConfig struct {
+	Enabled   bool   `json:"enabled"    env:"LANGFUSE_ENABLED"`
+	SecretKey string `json:"secret_key" env:"LANGFUSE_SECRET_KEY"`
+	PublicKey string `json:"public_key" env:"LANGFUSE_PUBLIC_KEY"`
+	BaseURL   string `json:"base_url"   env:"LANGFUSE_BASE_URL"`
+}
+
 type ProvidersConfig struct {
 	Anthropic     ProviderConfig       `json:"anthropic"`
 	OpenAI        OpenAIProviderConfig `json:"openai"`
@@ -506,8 +518,8 @@ type ProvidersConfig struct {
 // IsEmpty checks if all provider configs are empty (no API keys or API bases set)
 // Note: WebSearch is an optimization option and doesn't count as "non-empty"
 func (p ProvidersConfig) IsEmpty() bool {
-	return p.Anthropic.APIKey == "" && p.Anthropic.APIBase == "" &&
-		p.OpenAI.APIKey == "" && p.OpenAI.APIBase == "" &&
+	return p.Anthropic.APIKey == "" && p.Anthropic.APIBase == "" && p.Anthropic.AuthMethod == "" &&
+		p.OpenAI.APIKey == "" && p.OpenAI.APIBase == "" && p.OpenAI.AuthMethod == "" &&
 		p.LiteLLM.APIKey == "" && p.LiteLLM.APIBase == "" &&
 		p.OpenRouter.APIKey == "" && p.OpenRouter.APIBase == "" &&
 		p.Groq.APIKey == "" && p.Groq.APIBase == "" &&

@@ -30,14 +30,19 @@ type CodexProvider struct {
 const defaultCodexInstructions = "You are Codex, a coding assistant."
 
 func NewCodexProvider(token, accountID string) *CodexProvider {
+	return NewCodexProviderWithProxy(token, accountID, "")
+}
+
+func NewCodexProviderWithProxy(token, accountID, proxy string) *CodexProvider {
+	baseURL := "https://chatgpt.com/backend-api/codex"
+	if proxy != "" {
+		baseURL = strings.TrimRight(proxy, "/")
+	}
 	opts := []option.RequestOption{
-		option.WithBaseURL("https://chatgpt.com/backend-api/codex"),
+		option.WithBaseURL(baseURL),
 		option.WithAPIKey(token),
 		option.WithHeader("originator", "codex_cli_rs"),
 		option.WithHeader("OpenAI-Beta", "responses=experimental"),
-	}
-	if accountID != "" {
-		opts = append(opts, option.WithHeader("Chatgpt-Account-Id", accountID))
 	}
 	client := openai.NewClient(opts...)
 	return &CodexProvider{

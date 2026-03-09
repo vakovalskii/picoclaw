@@ -70,6 +70,7 @@ func resolveProviderSelection(cfg *config.Config) (providerSelection, error) {
 				}
 				if cfg.Providers.OpenAI.AuthMethod == "oauth" || cfg.Providers.OpenAI.AuthMethod == "token" {
 					sel.providerType = providerTypeCodexAuth
+					sel.proxy = cfg.Providers.OpenAI.Proxy
 					return sel, nil
 				}
 				sel.apiKey = cfg.Providers.OpenAI.APIKey
@@ -281,6 +282,7 @@ func resolveProviderSelection(cfg *config.Config) (providerSelection, error) {
 			}
 			if cfg.Providers.OpenAI.AuthMethod == "oauth" || cfg.Providers.OpenAI.AuthMethod == "token" {
 				sel.providerType = providerTypeCodexAuth
+				sel.proxy = cfg.Providers.OpenAI.Proxy
 				return sel, nil
 			}
 			sel.apiKey = cfg.Providers.OpenAI.APIKey

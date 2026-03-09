@@ -56,7 +56,7 @@ func ConvertProvidersToModelList(cfg *Config) []ModelConfig {
 			providerNames: []string{"openai", "gpt"},
 			protocol:      "openai",
 			buildConfig: func(p ProvidersConfig) (ModelConfig, bool) {
-				if p.OpenAI.APIKey == "" && p.OpenAI.APIBase == "" {
+				if p.OpenAI.APIKey == "" && p.OpenAI.APIBase == "" && p.OpenAI.AuthMethod == "" {
 					return ModelConfig{}, false
 				}
 				return ModelConfig{

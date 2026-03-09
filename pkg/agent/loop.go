@@ -31,6 +31,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/skills"
 	"github.com/sipeed/picoclaw/pkg/state"
 	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/picoclaw/pkg/tracing"
 	"github.com/sipeed/picoclaw/pkg/utils"
 	"github.com/sipeed/picoclaw/pkg/voice"
 )
@@ -48,6 +49,7 @@ type AgentLoop struct {
 	transcriber    voice.Transcriber
 	cmdRegistry    *commands.Registry
 	mcp            mcpRuntime
+	tracer         *tracing.Tracer
 }
 
 // processOptions configures how a message is processed
@@ -61,6 +63,7 @@ type processOptions struct {
 	EnableSummary   bool     // Whether to trigger summarization
 	SendResponse    bool     // Whether to send response via bus
 	NoHistory       bool     // If true, don't load session history (for heartbeat)
+	traceID         string   // Langfuse trace ID (set internally)
 }
 
 const (
@@ -94,6 +97,21 @@ func NewAgentLoop(
 		stateManager = state.NewManager(defaultAgent.Workspace)
 	}
 
+	var tracer *tracing.Tracer
+	if cfg.Tracing.Langfuse.Enabled {
+		tracer = tracing.New(tracing.Config{
+			Enabled:   true,
+			SecretKey: cfg.Tracing.Langfuse.SecretKey,
+			PublicKey: cfg.Tracing.Langfuse.PublicKey,
+			BaseURL:   cfg.Tracing.Langfuse.BaseURL,
+		})
+		if tracer != nil {
+			logger.InfoCF("tracing", "Langfuse tracing enabled", map[string]any{
+				"base_url": cfg.Tracing.Langfuse.BaseURL,
+			})
+		}
+	}
+
 	al := &AgentLoop{
 		bus:         msgBus,
 		cfg:         cfg,
@@ -102,6 +120,7 @@ func NewAgentLoop(
 		summarizing: sync.Map{},
 		fallback:    fallbackChain,
 		cmdRegistry: commands.NewRegistry(commands.BuiltinDefinitions()),
+		tracer:      tracer,
 	}
 
 	return al
@@ -316,6 +335,9 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 func (al *AgentLoop) Stop() {
 	al.running.Store(false)
+	if al.tracer != nil {
+		al.tracer.Shutdown()
+	}
 }
 
 // Close releases resources held by agent session stores. Call after Stop.
@@ -771,8 +793,32 @@ func (al *AgentLoop) runAgentLoop(
 	// 2. Save user message to session
 	agent.Sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
 
+	// 2.5 Create Langfuse trace for this agent turn
+	traceID := fmt.Sprintf("%s-%s-%d", agent.ID, opts.Channel, time.Now().UnixMilli())
+	if al.tracer != nil {
+		al.tracer.CreateTrace(tracing.TraceParams{
+			ID:      traceID,
+			Name:    fmt.Sprintf("agent/%s", agent.ID),
+			Input:   opts.UserMessage,
+			AgentID: agent.ID,
+			Channel: opts.Channel,
+			ChatID:  opts.ChatID,
+			Tags:    []string{agent.ID, opts.Channel},
+		})
+	}
+	opts.traceID = traceID
+
 	// 3. Run LLM iteration loop
 	finalContent, iteration, err := al.runLLMIteration(ctx, agent, messages, opts)
+
+	// Update trace with final output
+	if al.tracer != nil {
+		al.tracer.UpdateTrace(tracing.UpdateTraceParams{
+			ID:     traceID,
+			Output: finalContent,
+		})
+	}
+
 	if err != nil {
 		return "", err
 	}
@@ -969,6 +1015,7 @@ func (al *AgentLoop) runLLMIteration(
 
 		// Retry loop for context/token errors
 		maxRetries := 2
+		llmStartAt := time.Now()
 		for retry := 0; retry <= maxRetries; retry++ {
 			response, err = callLLM()
 			if err == nil {
@@ -1044,6 +1091,33 @@ func (al *AgentLoop) runLLMIteration(
 					"error":     err.Error(),
 				})
 			return "", iteration, fmt.Errorf("LLM call failed after retries: %w", err)
+		}
+
+		// Send generation trace to Langfuse
+		if al.tracer != nil && response != nil {
+			var traceUsage *tracing.UsageInfo
+			if response.Usage != nil {
+				traceUsage = &tracing.UsageInfo{
+					PromptTokens:     response.Usage.PromptTokens,
+					CompletionTokens: response.Usage.CompletionTokens,
+					TotalTokens:      response.Usage.TotalTokens,
+				}
+			}
+			al.tracer.CreateGeneration(tracing.GenerationParams{
+				ID:      fmt.Sprintf("%s-gen-%d", opts.traceID, iteration),
+				TraceID: opts.traceID,
+				Name:    fmt.Sprintf("llm/%s/iter-%d", activeModel, iteration),
+				Model:   activeModel,
+				Input:   formatMessagesForTrace(messages),
+				Output:  response.Content,
+				StartAt: llmStartAt,
+				EndAt:   time.Now(),
+				Usage:   traceUsage,
+				Metadata: map[string]any{
+					"iteration":  iteration,
+					"tool_calls": len(response.ToolCalls),
+				},
+			})
 		}
 
 		go al.handleReasoning(
@@ -1144,6 +1218,7 @@ func (al *AgentLoop) runLLMIteration(
 			wg.Add(1)
 			go func(idx int, tc providers.ToolCall) {
 				defer wg.Done()
+				toolStartAt := time.Now()
 
 				argsJSON, _ := json.Marshal(tc.Arguments)
 				argsPreview := utils.Truncate(string(argsJSON), 200)
@@ -1206,6 +1281,23 @@ func (al *AgentLoop) runLLMIteration(
 					asyncCallback,
 				)
 				agentResults[idx].result = toolResult
+
+				// Trace tool call as a span
+				if al.tracer != nil {
+					toolOutput := ""
+					if toolResult != nil {
+						toolOutput = utils.Truncate(toolResult.ForLLM, 1000)
+					}
+					al.tracer.CreateSpan(tracing.SpanParams{
+						ID:      fmt.Sprintf("%s-tool-%d-%s", opts.traceID, iteration, tc.ID),
+						TraceID: opts.traceID,
+						Name:    fmt.Sprintf("tool/%s", tc.Name),
+						Input:   tc.Arguments,
+						Output:  toolOutput,
+						StartAt: toolStartAt,
+						EndAt:   time.Now(),
+					})
+				}
 			}(i, tc)
 		}
 		wg.Wait()
@@ -1826,4 +1918,23 @@ func extractParentPeer(msg bus.InboundMessage) *routing.RoutePeer {
 		return nil
 	}
 	return &routing.RoutePeer{Kind: parentKind, ID: parentID}
+}
+
+// formatMessagesForTrace returns a compact representation of messages for Langfuse input.
+func formatMessagesForTrace(messages []providers.Message) []map[string]any {
+	result := make([]map[string]any, 0, len(messages))
+	for _, msg := range messages {
+		m := map[string]any{
+			"role":    msg.Role,
+			"content": utils.Truncate(msg.Content, 2000),
+		}
+		if len(msg.ToolCalls) > 0 {
+			m["tool_calls"] = len(msg.ToolCalls)
+		}
+		if msg.ToolCallID != "" {
+			m["tool_call_id"] = msg.ToolCallID
+		}
+		result = append(result, m)
+	}
+	return result
 }
