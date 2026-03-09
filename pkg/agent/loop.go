@@ -1094,6 +1094,7 @@ func (al *AgentLoop) runLLMIteration(
 		}
 
 		// Send generation trace to Langfuse
+		generationID := fmt.Sprintf("%s-gen-%d", opts.traceID, iteration)
 		if al.tracer != nil && response != nil {
 			var traceUsage *tracing.UsageInfo
 			if response.Usage != nil {
@@ -1104,7 +1105,7 @@ func (al *AgentLoop) runLLMIteration(
 				}
 			}
 			al.tracer.CreateGeneration(tracing.GenerationParams{
-				ID:      fmt.Sprintf("%s-gen-%d", opts.traceID, iteration),
+				ID:      generationID,
 				TraceID: opts.traceID,
 				Name:    fmt.Sprintf("llm/%s/iter-%d", activeModel, iteration),
 				Model:   activeModel,
@@ -1289,13 +1290,14 @@ func (al *AgentLoop) runLLMIteration(
 						toolOutput = utils.Truncate(toolResult.ForLLM, 1000)
 					}
 					al.tracer.CreateSpan(tracing.SpanParams{
-						ID:      fmt.Sprintf("%s-tool-%d-%s", opts.traceID, iteration, tc.ID),
-						TraceID: opts.traceID,
-						Name:    fmt.Sprintf("tool/%s", tc.Name),
-						Input:   tc.Arguments,
-						Output:  toolOutput,
-						StartAt: toolStartAt,
-						EndAt:   time.Now(),
+						ID:                  fmt.Sprintf("%s-tool-%d-%s", opts.traceID, iteration, tc.ID),
+						TraceID:             opts.traceID,
+						ParentObservationID: generationID,
+						Name:                fmt.Sprintf("tool/%s", tc.Name),
+						Input:               tc.Arguments,
+						Output:              toolOutput,
+						StartAt:             toolStartAt,
+						EndAt:               time.Now(),
 					})
 				}
 			}(i, tc)

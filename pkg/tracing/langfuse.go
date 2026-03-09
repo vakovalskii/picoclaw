@@ -72,13 +72,14 @@ type GenerationParams struct {
 
 // SpanParams records a span (e.g. tool execution) within a trace.
 type SpanParams struct {
-	ID      string
-	TraceID string
-	Name    string
-	Input   any
-	Output  any
-	StartAt time.Time
-	EndAt   time.Time
+	ID                  string
+	TraceID             string
+	ParentObservationID string // links span to parent generation
+	Name                string
+	Input               any
+	Output              any
+	StartAt             time.Time
+	EndAt               time.Time
 }
 
 // UpdateTraceParams updates a trace with final output.
@@ -118,13 +119,14 @@ type generationBody struct {
 }
 
 type spanBody struct {
-	ID        string `json:"id"`
-	TraceID   string `json:"traceId"`
-	Name      string `json:"name,omitempty"`
-	Input     any    `json:"input,omitempty"`
-	Output    any    `json:"output,omitempty"`
-	StartTime string `json:"startTime,omitempty"`
-	EndTime   string `json:"endTime,omitempty"`
+	ID                  string `json:"id"`
+	TraceID             string `json:"traceId"`
+	ParentObservationID string `json:"parentObservationId,omitempty"`
+	Name                string `json:"name,omitempty"`
+	Input               any    `json:"input,omitempty"`
+	Output              any    `json:"output,omitempty"`
+	StartTime           string `json:"startTime,omitempty"`
+	EndTime             string `json:"endTime,omitempty"`
 }
 
 type ingestionRequest struct {
@@ -231,13 +233,14 @@ func (t *Tracer) CreateSpan(params SpanParams) {
 		Type:      "span-create",
 		Timestamp: now,
 		Body: spanBody{
-			ID:        params.ID,
-			TraceID:   params.TraceID,
-			Name:      params.Name,
-			Input:     params.Input,
-			Output:    params.Output,
-			StartTime: params.StartAt.UTC().Format(time.RFC3339Nano),
-			EndTime:   params.EndAt.UTC().Format(time.RFC3339Nano),
+			ID:                  params.ID,
+			TraceID:             params.TraceID,
+			ParentObservationID: params.ParentObservationID,
+			Name:                params.Name,
+			Input:               params.Input,
+			Output:              params.Output,
+			StartTime:           params.StartAt.UTC().Format(time.RFC3339Nano),
+			EndTime:             params.EndAt.UTC().Format(time.RFC3339Nano),
 		},
 	})
 }
@@ -316,5 +319,16 @@ func (t *Tracer) flush() {
 			"events_count":  len(events),
 			"response_body": string(respBody),
 		})
+		return
 	}
+
+	// Collect event types for the debug log
+	types := make(map[string]int, len(events))
+	for _, e := range events {
+		types[e.Type]++
+	}
+	logger.DebugCF("tracing", "Langfuse batch sent", map[string]any{
+		"events_count": len(events),
+		"event_types":  types,
+	})
 }
