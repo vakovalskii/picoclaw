@@ -99,6 +99,13 @@ func NewAgentInstance(
 		toolsRegistry.Register(tools.NewAppendFileTool(workspace, restrict, allowWritePaths))
 	}
 
+	// Camera tools — only if cameras are configured
+	if len(cfg.Cameras) > 0 {
+		toolsRegistry.Register(tools.NewCameraSnapshotTool(cfg.Cameras))
+		toolsRegistry.Register(tools.NewCameraSendPhotoTool(cfg.Cameras, nil)) // store injected later
+		toolsRegistry.Register(tools.NewCameraMoveTool(cfg.Cameras))
+	}
+
 	sessionsDir := filepath.Join(workspace, "sessions")
 	sessions := initSessionStore(sessionsDir)
 

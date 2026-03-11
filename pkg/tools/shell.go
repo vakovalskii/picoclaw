@@ -80,7 +80,9 @@ var (
 	}
 
 	// absolutePathPattern matches absolute file paths in commands (Unix and Windows).
-	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\\\"']+|/[^\s\"']+`)
+	// Requires at least two path components (e.g. /foo/bar) to avoid false
+	// positives on CIDR notation (/24), URL paths (/v1), and similar short tokens.
+	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\\\"']+|/[A-Za-z_][A-Za-z0-9._-]*/[^\s\"']*`)
 
 	// safePaths are kernel pseudo-devices that are always safe to reference in
 	// commands, regardless of workspace restriction. They contain no user data

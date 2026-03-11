@@ -142,6 +142,24 @@ var toolCatalog = []toolCatalogEntry{
 		Category:    "discovery",
 		ConfigKey:   "mcp.discovery.use_bm25",
 	},
+	{
+		Name:        "camera_snapshot",
+		Description: "Capture a snapshot from a camera and return it for visual analysis by the LLM.",
+		Category:    "cameras",
+		ConfigKey:   "cameras",
+	},
+	{
+		Name:        "camera_send_photo",
+		Description: "Capture a photo from a camera and send it directly to the user.",
+		Category:    "cameras",
+		ConfigKey:   "cameras",
+	},
+	{
+		Name:        "camera_move",
+		Description: "Move/rotate a PTZ camera via ONVIF (up, down, left, right, home).",
+		Category:    "cameras",
+		ConfigKey:   "cameras",
+	},
 }
 
 func (h *Handler) registerToolRoutes(mux *http.ServeMux) {
@@ -220,6 +238,13 @@ func buildToolSupport(cfg *config.Config) []toolSupportItem {
 			status, reasonCode = resolveDiscoveryToolSupport(cfg, cfg.Tools.MCP.Discovery.UseBM25)
 		case "i2c", "spi":
 			status, reasonCode = resolveHardwareToolSupport(cfg.Tools.IsToolEnabled(entry.ConfigKey))
+		case "camera_snapshot", "camera_send_photo", "camera_move":
+			if len(cfg.Cameras) > 0 {
+				status = "enabled"
+			} else {
+				status = "blocked"
+				reasonCode = "no_cameras_configured"
+			}
 		default:
 			if cfg.Tools.IsToolEnabled(entry.ConfigKey) {
 				status = "enabled"

@@ -379,6 +379,13 @@ func (al *AgentLoop) SetMediaStore(s media.MediaStore) {
 			sf.SetMediaStore(s)
 		}
 	})
+
+	// Propagate store to camera_send_photo tools in all agents.
+	al.registry.ForEachTool("camera_send_photo", func(t tools.Tool) {
+		if cp, ok := t.(*tools.CameraSendPhotoTool); ok {
+			cp.SetMediaStore(s)
+		}
+	})
 }
 
 // SetTranscriber injects a voice transcriber for agent-level audio transcription.
@@ -598,6 +605,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		},
 	)
 
+	originalContent := msg.Content
 	var hadAudio bool
 	msg, hadAudio = al.transcribeAudioInMessage(ctx, msg)
 
@@ -605,6 +613,25 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	// Now that transcription (and optional feedback) is done, send it.
 	if hadAudio && al.channelManager != nil {
 		al.channelManager.SendPlaceholder(ctx, msg.Channel, msg.ChatID)
+	}
+
+	// Notify the user about the transcribed text so they can verify.
+	if msg.Content != originalContent && msg.Channel != "" && msg.ChatID != "" {
+		// Extract transcribed text from [voice: ...] tags.
+		matches := audioAnnotationRe.FindAllString(msg.Content, -1)
+		for _, m := range matches {
+			// Strip "[voice: " prefix and "]" suffix.
+			text := strings.TrimPrefix(m, "[voice: ")
+			text = strings.TrimPrefix(text, "[audio: ")
+			text = strings.TrimSuffix(text, "]")
+			if text != "" {
+				al.bus.PublishOutbound(ctx, bus.OutboundMessage{
+					Channel: msg.Channel,
+					ChatID:  msg.ChatID,
+					Content: "🎤 " + text,
+				})
+			}
+		}
 	}
 
 	// Route system messages to processSystemMessage
@@ -961,6 +988,16 @@ func (al *AgentLoop) runLLMIteration(
 
 		// Build tool definitions
 		providerToolDefs := agent.Tools.ToProviderDefs()
+
+		// Log tool names at INFO level for diagnostics
+		availableToolNames := make([]string, 0, len(providerToolDefs))
+		for _, td := range providerToolDefs {
+			availableToolNames = append(availableToolNames, td.Function.Name)
+		}
+		logger.InfoCF("agent", "Tools for LLM call", map[string]any{
+			"count": len(providerToolDefs),
+			"names": availableToolNames,
+		})
 
 		// Log LLM request details
 		logger.DebugCF("agent", "LLM request",
@@ -1412,6 +1449,14 @@ func (al *AgentLoop) runLLMIteration(
 				Content:    contentForLLM,
 				ToolCallID: r.tc.ID,
 			}
+
+			// Attach inline media (e.g. camera snapshots) so the LLM can see images.
+			for _, m := range r.result.Media {
+				if strings.HasPrefix(m, "data:image/") {
+					toolResultMsg.Media = append(toolResultMsg.Media, m)
+				}
+			}
+
 			messages = append(messages, toolResultMsg)
 
 			// Save tool result message to session

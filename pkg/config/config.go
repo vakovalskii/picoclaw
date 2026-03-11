@@ -61,6 +61,7 @@ type Config struct {
 	Devices   DevicesConfig   `json:"devices"`
 	Voice     VoiceConfig     `json:"voice,omitempty"`
 	Tracing   TracingConfig   `json:"tracing,omitempty"`
+	Cameras   []CameraConfig  `json:"cameras,omitempty"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty"`
 }
@@ -499,6 +500,12 @@ type LangfuseConfig struct {
 	SecretKey string `json:"secret_key" env:"LANGFUSE_SECRET_KEY"`
 	PublicKey string `json:"public_key" env:"LANGFUSE_PUBLIC_KEY"`
 	BaseURL   string `json:"base_url"   env:"LANGFUSE_BASE_URL"`
+}
+
+// CameraConfig defines a single RTSP camera.
+type CameraConfig struct {
+	Name string `json:"name"` // human-readable name, e.g. "front_door"
+	URL  string `json:"url"`  // full RTSP URL with credentials
 }
 
 type ProvidersConfig struct {

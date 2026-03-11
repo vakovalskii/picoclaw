@@ -229,6 +229,32 @@ func buildCodexParams(
 						},
 					},
 				})
+			} else if len(msg.Media) > 0 {
+				// Multipart content: text + images
+				parts := make(responses.ResponseInputMessageContentListParam, 0, 1+len(msg.Media))
+				if msg.Content != "" {
+					parts = append(parts, responses.ResponseInputContentUnionParam{
+						OfInputText: &responses.ResponseInputTextParam{
+							Text: msg.Content,
+						},
+					})
+				}
+				for _, mediaURL := range msg.Media {
+					if strings.HasPrefix(mediaURL, "data:image/") {
+						parts = append(parts, responses.ResponseInputContentUnionParam{
+							OfInputImage: &responses.ResponseInputImageParam{
+								ImageURL: openai.Opt(mediaURL),
+								Detail:   responses.ResponseInputImageDetailAuto,
+							},
+						})
+					}
+				}
+				inputItems = append(inputItems, responses.ResponseInputItemUnionParam{
+					OfMessage: &responses.EasyInputMessageParam{
+						Role:    responses.EasyInputMessageRoleUser,
+						Content: responses.EasyInputMessageContentUnionParam{OfInputItemContentList: parts},
+					},
+				})
 			} else {
 				inputItems = append(inputItems, responses.ResponseInputItemUnionParam{
 					OfMessage: &responses.EasyInputMessageParam{
@@ -272,14 +298,52 @@ func buildCodexParams(
 				})
 			}
 		case "tool":
-			inputItems = append(inputItems, responses.ResponseInputItemUnionParam{
-				OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
-					CallID: msg.ToolCallID,
-					Output: responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
-						OfString: openai.Opt(msg.Content),
+			// Check if tool result contains inline images (e.g. camera snapshots).
+			var hasImages bool
+			for _, m := range msg.Media {
+				if strings.HasPrefix(m, "data:image/") {
+					hasImages = true
+					break
+				}
+			}
+			if hasImages {
+				// Send as content list: text + images
+				parts := make(responses.ResponseFunctionCallOutputItemListParam, 0, 1+len(msg.Media))
+				if msg.Content != "" {
+					parts = append(parts, responses.ResponseFunctionCallOutputItemUnionParam{
+						OfInputText: &responses.ResponseInputTextContentParam{
+							Text: msg.Content,
+						},
+					})
+				}
+				for _, m := range msg.Media {
+					if strings.HasPrefix(m, "data:image/") {
+						parts = append(parts, responses.ResponseFunctionCallOutputItemUnionParam{
+							OfInputImage: &responses.ResponseInputImageContentParam{
+								ImageURL: openai.Opt(m),
+								Detail:   responses.ResponseInputImageContentDetailAuto,
+							},
+						})
+					}
+				}
+				inputItems = append(inputItems, responses.ResponseInputItemUnionParam{
+					OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
+						CallID: msg.ToolCallID,
+						Output: responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
+							OfResponseFunctionCallOutputItemArray: parts,
+						},
 					},
-				},
-			})
+				})
+			} else {
+				inputItems = append(inputItems, responses.ResponseInputItemUnionParam{
+					OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
+						CallID: msg.ToolCallID,
+						Output: responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
+							OfString: openai.Opt(msg.Content),
+						},
+					},
+				})
+			}
 		}
 	}
 
